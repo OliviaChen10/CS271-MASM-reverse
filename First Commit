@@ -1,0 +1,82 @@
+TITLE Intern Error Corrector     (Proj6_chenol.asm)
+
+; Author: Olivia Chen
+; Last Modified: 11/27
+; OSU email address: chenol@oregonstate.edu
+; Course number/section:   CS271 Section 400
+; Project Number: 6                Due Date: 12/7
+; Description: 
+
+
+INCLUDE Irvine32.inc
+
+; MACROS
+mGetString MACRO prompt, input, count
+	; prompt: input, reference
+	PUSH	EDX
+	MOV		EDX, OFFSET prompt
+	CALL	WriteString
+
+	; input: user's keyboard input into a memory location (output, reference)
+
+	; count: input, value for length of string you can accomodate
+
+	POP		EDX
+ENDM
+
+
+; (insert constant definitions here)
+
+TEMPS_PER_DAY = 24
+DELIMITER = ","
+
+.data
+
+; Strings
+intro		BYTE		"Welcome to Intern Error Corrector by Olivia Chen!",13,10,13,10,
+						"I'll read a ','-delimited file storing a series offset temperature values. The file must be ASCII-formatted.",13,10,
+						"I'll then reverse the ordering and provide the corrected temperature ordering as a printout!",13,10,0
+outro		BYTE		"Thanks for using the Intern Error Corrector. Stay tuned for Intern Upgrader 2.0. Goodbye!",13,10,0
+prompt		BYTE		"Please enter the name of the file to be read: ",0
+
+
+; Variables
+
+
+.code
+main PROC
+
+; (insert executable instructions here)
+PUSH	OFFSET intro
+CALL	introduction											; RET = 4
+
+
+
+
+
+
+PUSH	OFFSET outro
+CALL	introduction											; RET = 4
+
+	Invoke ExitProcess,0	; exit to operating system
+main ENDP
+
+; (insert additional procedures here)
+
+introduction PROC
+	; [EBP + 8] = offset intro/outro							"welcome to..."/"goodbye"
+	; [EBP + 4] = RET
+	; [EBP] = Old EBP
+	PUSH	EBP
+	MOV		EBP, ESP
+	PUSH	EDX
+
+	MOV		EDX, [EBP + 8]
+	CALL	WriteString
+
+	POP		EDX
+	POP		EBP
+	RET		4
+introduction ENDP
+
+END main
