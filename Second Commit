@@ -1,0 +1,209 @@
+TITLE Intern Error Corrector     (Proj6_chenol.asm)
+
+; Author: Olivia Chen
+; Last Modified: 11/27
+; OSU email address: chenol@oregonstate.edu
+; Course number/section:   CS271 Section 400
+; Project Number: 6                Due Date: 12/7
+; Description: 
+
+
+INCLUDE Irvine32.inc
+
+; MACROS
+
+; -------------------------------
+; Macro to
+; arg1 = str address        arg2 = readstring input	
+; -------------------------------
+mGetString MACRO prompt, input
+	PUSH	EDX
+	MOV		EDX, prompt										; "please enter..."
+	CALL	WriteString
+	MOV		EDX, input										; input will be filename/file
+	MOV		ECX, 50											; size can accomodate
+	CALL	ReadString
+
+
+
+	; input: user's keyboard input into a memory location (output, reference)
+
+	; count: input, value for length of string you can accomodate
+
+	POP		EDX
+ENDM
+
+; -------------------------------
+; Macro to print a string
+; arg1 = str address
+; -------------------------------
+mDisplayString MACRO str_input
+	PUSH	EDX
+	MOV		EDX, str_input
+	CALL	WriteString
+
+	POP		EDX
+ENDM
+
+
+; -------------------------------
+; Macro to print an ASCII formatted character that is provided as an immediate or constant
+; -------------------------------
+mDisplayChar MACRO ascii_num
+	PUSH	EAX
+	MOV		EAX, ascii_num
+	CALL	WriteChar
+
+	POP		EAX
+ENDM
+
+; (insert constant definitions here)
+
+TEMPS_PER_DAY = 24
+DELIMITER = 44
+
+.data
+
+; Strings
+intro			BYTE		"Welcome to Intern Error Corrector by Olivia Chen!",13,10,13,10,
+							"I'll read a ','-delimited file storing a series offset temperature values. The file must be ASCII-formatted.",13,10,
+							"I'll then reverse the ordering and provide the corrected temperature ordering as a printout!",13,10,13,10,0
+outro			BYTE		"Thanks for using the Intern Error Corrector. Stay tuned for Intern Upgrader 2.0. Goodbye!",13,10,0
+prompt			BYTE		"Please enter the name of the file to be read: ",0
+error_filename	BYTE		"Invalid filename...Don't tell me you're as bad as the intern!",13,10,0
+error_reading	BYTE		"Error reading file. Back to the books for you too!",13,10,0
+
+
+; Variables
+user_input		BYTE		50 DUP(0)							; string to be entered by user
+fileHandle		BYTE		?									; from OpenInputFile
+fileBuffer		BYTE		TEMPS_PER_DAY DUP(?)
+rev_array		SDWORD		1, 2, 3, 4, -5
+
+.code
+main PROC
+
+; (insert executable instructions here)
+;PUSH	OFFSET intro
+;CALL	introduction											; RET = 4
+
+mDisplayString OFFSET intro
+mGetString OFFSET prompt, OFFSET user_input
+
+PUSH	OFFSET error_reading
+PUSH	OFFSET fileBuffer
+PUSH	OFFSET fileHandle
+PUSH	OFFSET error_reading
+PUSH	OFFSET user_input
+PUSH	OFFSET tempArray
+CALL	ParseTempsFromString									; RET = 4 + 4 + 4 + 4 = 
+
+
+PUSH	OFFSET rev_array
+PUSH	LENGTHOF rev_array
+PUSH	TYPE rev_array
+CALL	WriteTempsReverse										; RET = 4 + 4 + 4 = 12
+
+mDisplayString OFFSET outro
+
+
+
+
+
+	Invoke ExitProcess,0	; exit to operating system
+main ENDP
+
+; PROCEDURES
+
+; [EBP + 28] = OFFSET error_reading
+; [EBP + 24] = OFFSET fileBuffer
+; [EBP + 20] = OFFSET fileHandle
+; [EBP + 16] = OFFSET error_filname
+; [EBP + 12] = OFFSET user_input
+; [EBP + 8] = OFFSET tempArray
+; [EBP + 4] = RET
+; [EBP] = Old EBP
+ParseTempsFromString PROC
+	PUSH	EBP
+	MOV		EBP, ESP
+	PUSH	EDX
+
+	MOV		EDX, [EBP + 12]										; move filename into EDX
+	CALL	OpenInputFile
+	MOV		[EBP + 20], EAX
+
+	CMP		EAX, INVALID_HANDLE_VALUE
+	JNE		_validName
+	mDisplayString [EBP + 16]									; call write string macro with error message
+	JMP		_quit
+
+
+ _validName:
+	MOV		EAX, [EBP + 20]
+	MOV		EDX, [EBP + 24]
+	MOV		ECX, TEMPS_PER_DAY - 1
+	CALL	ReadFromFile
+	MOV		bytesRead, EAX
+	JNC		_validRead											; when no error in reading file
+	mDisplayString [EBP + 28]									; call write string macro with error message
+	JMP		_quit
+
+ _validRead:
+	
+
+
+ _quit: 
+	POP		EDX
+	POP		EBP
+	RET		12
+ParseTempsFromString ENDP
+
+
+
+; ------ WRITETEMPSREVERSE ------
+; Procedure to write out an array in reverse
+; Preconditions: 
+	; [EBP + 16] = array
+	; [EBP + 12] = LENGTHOF array (5)
+	; [EBP + 8] = TYPE array (SDWORD = 4)
+	; [EBP + 4] = RET
+	; [EBP] = Old EBP
+; Postconditions: Modifies ESI, ECX, EBX, EAX
+
+WriteTempsReverse PROC
+
+	PUSH	EBP
+	MOV		EBP, ESP
+	PUSH	ESI													; save registers
+	PUSH	ECX
+	PUSH	EBX
+	PUSH	EAX
+
+	MOV		EAX, [EBP + 8]										; TYPE array (SDWORD = 4)
+	MOV		EBX, [EBP + 12]										; LENGTHOF array 
+	DEC		EBX
+	MUL		EAX
+	MOV		ESI, [EBP + 16]										; put address of array into ESI
+	ADD		ESI, EAX											; type * lengthof - 1 = last element of array
+	MOV		ECX, [EBP + 12]										; # elements of array = loop counter
+
+ _printRev:
+	MOV		EAX, [ESI]
+	CALL	WriteInt											; print signed (int not dec)
+	mDisplayChar DELIMITER
+	SUB		ESI, [EBP + 8]										; move backwards by array type (4)
+	LOOP	_printRev
+
+	POP		EAX													; restore registers
+	POP		EBX
+	POP		ECX
+	POP		ESI
+	POP		EBP
+	RET		12
+WriteTempsReverse ENDP
+
+
+
+
+
+END main
