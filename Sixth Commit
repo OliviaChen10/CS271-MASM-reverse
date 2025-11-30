@@ -1,0 +1,301 @@
+TITLE Intern Error Corrector     (Proj6_chenol.asm)
+
+; Author: Olivia Chen
+; Last Modified: 11/29
+; OSU email address: chenol@oregonstate.edu
+; Course number/section:   CS271 Section 400
+; Project Number: 6                Due Date: 12/7
+; Description: Receives a one-line file filled with string formatted numbers and characters
+; and converts the values in the file into integers, then prints those integers in 
+; reverse order
+
+
+INCLUDE Irvine32.inc
+
+; MACROS
+
+; -------------------------------
+; Macro to get an input from the user
+; arg1 = str address        arg2 = readstring input	
+; -------------------------------
+mGetString MACRO prompt, input
+	PUSH	EDX
+	MOV		EDX, prompt										; "please enter..."
+	CALL	WriteString
+	MOV		EDX, input										; input will be filename/file
+	MOV		ECX, 50											; size can accomodate
+	CALL	ReadString
+
+	POP		EDX
+ENDM
+
+; -------------------------------
+; Macro to print a string
+; arg1 = str address
+; -------------------------------
+mDisplayString MACRO str_input
+	PUSH	EDX
+	MOV		EDX, str_input
+	CALL	WriteString
+
+	POP		EDX
+ENDM
+
+; -------------------------------
+; Macro to print an ASCII formatted character that is provided as an immediate or constant
+; arg1 = imm/constant 
+; -------------------------------
+mDisplayChar MACRO ascii_num
+	PUSH	EAX
+	MOV		EAX, ascii_num
+	CALL	WriteChar
+
+	POP		EAX
+ENDM
+
+
+TEMPS_PER_DAY = 24
+DELIMITER = ","
+
+.data
+
+; Strings
+intro			BYTE		"Welcome to Intern Error Corrector by Olivia Chen!",13,10,13,10,
+							"I'll read a ','-delimited file storing a series of temperature values. The file must be ASCII-formatted.",13,10,
+							"I'll then reverse the ordering and provide the corrected temperature ordering as a printout!",13,10,13,10,0
+outro			BYTE		"Thanks for using the Intern Error Corrector. Stay tuned for Intern Upgrader 2.0. Goodbye!",13,10,0
+prompt			BYTE		"Please enter the name of the file to be read: ",0
+error_filename	BYTE		"Invalid filename...Don't tell me you're as bad as the intern!",13,10,0
+error_reading	BYTE		"Error reading file. Back to the books for you too!",13,10,0
+corrected		BYTE		"Here's the corrected temperature order!",13,10,0 
+
+
+; Variables
+user_input		BYTE		50 DUP(0)								; string to be entered by user
+fileHandle		DWORD		?										; from OpenInputFile
+fileBuffer		BYTE		TEMPS_PER_DAY*300 DUP(?)				; make it big enough to handle longish files
+lenFileBuffer   DWORD		SIZEOF fileBuffer
+bytesRead		DWORD		?
+tempArray		SDWORD		TEMPS_PER_DAY DUP(?)
+lenTempArray	DWORD		LENGTHOF tempArray
+negative		DWORD		0										; local variable in parse proc. used to tell if a string is negative or not. default = 0, positive
+
+
+.code
+main PROC
+
+; INTRO
+	mDisplayString OFFSET intro										; "welcome to..."
+	mGetString OFFSET prompt, OFFSET user_input						; get file name from user
+
+
+; READ INPUT FILE
+	MOV		EDX, OFFSET user_input
+	CALL	OpenInputFile											; filehandle into EAX
+	MOV		fileHandle, EAX
+
+	CMP		EAX, INVALID_HANDLE_VALUE								; if filename doesn't match (remember the '-.txt'
+	JNE		_validName
+	mDisplayString OFFSET error_filename
+	JMP		_exit
+
+; VALIDATE FILENAME IS CORRECT
+ _validName: 
+	MOV		EAX, fileHandle											; preconditions for readfromfile
+	MOV		EDX, OFFSET fileBuffer
+	MOV		ECX, lenFileBuffer
+	CALL	ReadFromFile
+
+	MOV		bytesRead, EAX
+	JNC		_validRead
+	mDisplayString OFFSET error_reading								; if issue when reading file, exit
+	JMP		_exit
+
+
+; IF FILE IS GOOD, CALL PARSE
+ _validRead:								
+	CALL	CloseFile
+	PUSH	OFFSET fileBuffer										; read file is stored in here
+	PUSH	OFFSET tempArray										; array that will hold the integer values
+	CALL	ParseTempsFromString									; procedure to parse string into integers -- RET 8
+
+
+; WRITE OUT VALUES PARSED FROM FILE/STRING
+	CALL	crlf
+	mDisplayString OFFSET corrected									; "these are the corrected values..."
+
+	PUSH	OFFSET tempArray
+	CALL	WriteTempsReverse										; RET 4
+
+
+; FAREWELL
+	CALL	crlf
+	mDisplayString OFFSET outro										; "goodbye..."
+
+
+ _exit:
+	Invoke ExitProcess,0	
+main ENDP
+
+
+
+;------PARSETEMPSFROMSTRING-------
+; Procedure to convert string numbers into integer numbers and remove the delimiter
+; Preconditions: string filled array (filebuffer) to read from and empty array to fill with integer values
+; Postconditions: ESI, ESI, EDX, ECX, EBX, EAX changed
+; Receives:
+	; [EBP + 12] = OFFSET fileBuffer			
+	; [EBP + 8] = OFFSET tempArray				
+	; [EBP + 4] = RET
+	; [EBP] = Old EBP
+; Returns: tempArray, filled with integer values parsed from the string
+ParseTempsFromString PROC
+	PUSH	EBP
+	MOV		EBP, ESP
+	PUSH	ESI														; save registers
+	PUSH	EDI
+	PUSH	EDX
+	PUSH	ECX
+	PUSH	EBX
+	PUSH	EAX
+
+
+	MOV		ESI, [EBP + 12]											; string array to parse from
+	MOV		EDX, [EBP + 12]											; will use as a pointer to return to when moving through the array
+	MOV		EDI, [EBP + 8]											; new temp array
+	MOV		ECX, TEMPS_PER_DAY										; Loop counter
+	CLD
+
+ _next:
+	PUSH	EDI														; EDI will be inc with LODSB so we need to save original mem addy for storing the actual values
+
+ _readInput:	
+	LODSB
+	CMP		AL, DELIMITER											; if the char is the delimiter, we've reached the end of the integer/temp
+	JE		_skip
+	STOSB															; if not at end of temperature int, store value (it's over 9, so we need to keep reading the string)
+	JMP		_readInput												; in the case of numbers that are more than 1 length ie 10+ (2 or 3 length)
+	
+ _skip:
+																	; when it's the delimiter, ie ',' we want to skip adding this to the array and move on to the next value
+	STOSB															; store the Delimiter into array so it can be used again to terminate a number
+	JMP		_getNumericalValue
+
+_nextNum:
+	MOV		EDX, ESI												; save where we left off in reading the array
+	POP		EDI														; restore original memory address of tempArray aka where we left off
+	MOV		[EDI], EAX
+	ADD		EDI, 4													; go to next memory location 
+	LOOP	_next
+	CMP		ECX, 0													
+	JE		_exitProc
+
+ _getNumericalValue:
+	PUSH	ESI														; will need to store value
+	PUSH	ECX														; save original loop counter
+	XOR		EAX, EAX
+	MOV		ESI, EDX												; put stored string into ESI
+	MOV		EBX, 10													; mul by 10 to convert to decimal integer
+	MOV		ECX, 0													; "accumulator"
+	MOV		negative, ECX											; re-initialize negative flag
+	LODSB
+	
+
+ _parseString:
+	CMP		AL, "-"													; see if first char is a neg sign
+	JNE		_positive
+	
+	; if = "-" then it's a negative number. 
+	; Will need to turn it negative after the rest of the number is parsed
+	MOV		negative, 1												; sign that it will be negated later
+ 
+ _nextChar:	
+	LODSB
+
+ _positive:															; convert to numerical value									
+	CMP		AL, DELIMITER											; if it's the delimiter, terminate the number reading
+	JE		_checkNegative
+	SUB		AL, 48
+	PUSH	EAX														; save the loaded string for later
+	MOV		EAX, ECX
+	PUSH	EDX														
+	MUL		EBX														; this is how to get 10, 100, 1000, etc
+	POP		EDX														; restore EDX (due to mul)
+	MOV		ECX, EAX
+	POP		EAX														; restore the loaded string
+	ADD		ECX, EAX
+	JMP		_nextChar
+
+ _checkNegative:
+	CMP		negative, 1
+	JNE		_done
+	NEG		ECX														; if 1 is set, then it's negative
+
+ _done:
+ 	MOV		EAX, ECX							
+	POP		ECX														; restore original loop counter
+	POP		ESI														; restore string array
+	JMP		_nextNum
+
+_exitProc:
+	POP		EAX														; restore registers
+	POP		EBX
+	POP		ECX
+	POP		EDX
+	POP		EDI
+	POP		ESI
+	POP		EBP
+	RET 8
+ParseTempsFromString ENDP
+
+
+
+; ------ WRITETEMPSREVERSE ------
+; Procedure to write out an array in reverse
+; Preconditions: File is parsed and the numbers placed in an array to read from
+; Postconditions: Modifies ESI, ECX, EBX, EAX, EDX
+; Receives: 
+	; [EBP + 8] = TempArray (SDWORD = 4)
+	; [EBP + 4] = RET
+	; [EBP] = Old EBP
+; Returns: none
+
+WriteTempsReverse PROC
+	PUSH	EBP
+	MOV		EBP, ESP
+	PUSH	ESI														; save registers
+	PUSH	EDX
+	PUSH	ECX
+	PUSH	EBX
+	PUSH	EAX
+
+	MOV		ESI, [EBP + 8]											; put address of array into ESI
+	XOR		EDX, EDX
+	MOV		EBX, TEMPS_PER_DAY										; = length of array (amt of values)	- 1
+	DEC		EBX
+	MOV		EAX, 4													; 4 = TYPE of array (SDWORD)				
+	MUL		EBX														; Formula: type * (length - 1) = last element of array
+	ADD		ESI, EAX												; point to last element of array
+	MOV		ECX, TEMPS_PER_DAY										; loop counter
+
+ _printRev:
+	MOV		EAX, [ESI]
+	CALL	WriteInt												
+	mDisplayChar DELIMITER
+	SUB		ESI, 4													; move backwards by array type = 4
+	LOOP	_printRev
+
+	CALL	crlf
+
+	POP		EAX														; restore registers
+	POP		EBX
+	POP		ECX
+	POP		EDX
+	POP		ESI
+	POP		EBP
+	RET		4
+
+WriteTempsReverse ENDP
+
+
+END main
